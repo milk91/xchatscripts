@@ -22,6 +22,7 @@ def readTag(tags, json, num):
 		return tags + ", " + json.split('</name>')[num].split('<name>')[1]
 
 def getTags(artist, song):
+# return up to three tags for the song
 	tags = ""
 	fartist = urllib2.quote(artist)
 	fsong = urllib2.quote(song)
@@ -34,29 +35,60 @@ def getTags(artist, song):
 	else:
 		# get artist tags
 		artist_json = lastfmApi('http://ws.audioscrobbler.com/2.0/?method=artist.gettoptags&artist={}&api_key={}'.format(fartist, api))
-		artist_numtags = min(3, len(artist_json.split('</name>')) + 1)
+		artist_numtags = min(3, len(artist_json.split('</name>')) - 1)
 		for i in range(song_numtags):
 			tags = readTag(tags, song_json, i)
 		for i in range(artist_numtags - song_numtags):
 			tags = readTag(tags, artist_json, i)
-			
+	
+	if tags != "":
+		tags = " (" + tags + ")"
 	return tags
 
-def lastfmNp(word,word_eol,userdata):
+def resolveUser(nick):
+# return lastfm username for irc nick
+# I might use a dictionary for this if I ever add more people
+	if (nick == "oranj"):
+		return "oranj456"
+	else:
+	# couldn't find user, just return nick
+		return nick
+
+def checkChannel(channel):
+# returns true if script can be triggered in channel
+	channels = {'#love', '#lucky'}
+	for allowed in channels:
+		if channel == allowed:
+			return True
+	return False
+
+
+def lastfmNp(user):
 	# get currently playing song
-	np = lastfmApi('http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user={}&api_key={}'.format(username, api))
+	np = lastfmApi('http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user={}&api_key={}'.format(user, api))
+	if len(np.split('</artist>')) == 1:
+		return "no tracks found"
 	artist = np.split('</artist>')[0].split('>')[-1]
 	song = np.split('</name>')[0].split('<name>')[1]
 	
 	# get song tags
 	tags = getTags(artist, song)
 	
-	# print np text
-	if (tags == ""):
-		xchat.command('me np: {} - {}'.format(artist, song))
-	else:
-		xchat.command('me np: {} - {} ({})'.format(artist, song, tags))
+	# return np text
+	return 'np: {} - {}{}'.format(artist, song, tags)
 
+
+def sendNp(word,word_eol,userdata):
+	xchat.command('me {}'.format(lastfmNp(username)))
 	return xchat.EAT_ALL
 
-xchat.hook_command("np", lastfmNp, help="/np displays your now playing from last.fm") 
+def triggerNp(word, word_eol, userdata):
+	nick = word[0].split('!')[0]
+	nick = nick.lstrip(':')
+	channel = word[2]
+	if word[3] == ":!np" and checkChannel(channel) == True:
+		xchat.command('timer .1 msg {} [{}] {}'.format(channel, nick, lastfmNp(resolveUser(nick))))
+	return xchat.EAT_NONE
+
+xchat.hook_command("np", sendNp, help="/np displays your now playing from last.fm") 
+xchat.hook_server("privmsg", triggerNp) 
