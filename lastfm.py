@@ -35,17 +35,10 @@ def getTags(artist, song):
 		# get artist tags
 		artist_json = lastfmApi('http://ws.audioscrobbler.com/2.0/?method=artist.gettoptags&artist={}&api_key={}'.format(fartist, api))
 		artist_numtags = min(3, len(artist_json.split('</name>')) + 1)
-		if song_numtags > 0:
-		# song has 1 or 2 tags, both song and artist tags needed
-			for i in range(song_numtags):
-				tags = readTag(tags, song_json, i)
-			for i in range(artist_numtags - song_numtags):
-				tags = readTag(tags, artist_json, i)
-		else:
-		# song has no tags, use artist tags
-			if (artist_numtags > 0):
-				for i in range(artist_numtags):
-					tags = readTag(tags, artist_json, i)
+		for i in range(song_numtags):
+			tags = readTag(tags, song_json, i)
+		for i in range(artist_numtags - song_numtags):
+			tags = readTag(tags, artist_json, i)
 			
 	return tags
 
