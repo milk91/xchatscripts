@@ -5,10 +5,29 @@ __module_version__ = "1.1.0"
 __module_description__ = "/np for last.fm" 
 import xchat
 import urllib2
+import sys
+import time
 
 username = 'KillaB-zilla'
-api = 'b25b959554ed76058ac220b7b2e0a026'
+api = 'c9059e92f56e9c41df9e3cb5e2b2278a'
 	
+def RateLimited(maxPerSecond):
+    """Limit speed of network communications."""
+    minInterval = 1.0 / float(maxPerSecond)
+    def decorate(func):
+        lastTimeCalled = [0.0]
+        def rateLimitedFunction(*args,**kargs):
+            elapsed = time.clock() - lastTimeCalled[0]
+            leftToWait = minInterval - elapsed
+            if leftToWait>0:
+                time.sleep(leftToWait)
+            ret = func(*args,**kargs)
+            lastTimeCalled[0] = time.clock()
+            return ret
+        return rateLimitedFunction
+    return decorate
+
+@RateLimited(1)
 def lastfmApi(url):
 # get a page of json from lastfm 'url'
 	myjson = urllib2.urlopen(url)
@@ -66,10 +85,11 @@ def checkChannel(channel):
 def lastfmNp(user):
 	# get currently playing song
 	np = lastfmApi('http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user={}&api_key={}'.format(user, api))
-	if len(np.split('</artist>')) == 1:
+
+	if len(np.split('</name>')) == 1:
 		return "no tracks found"
 	artist = np.split('</artist>')[0].split('>')[-1]
-	song = np.split('</name>')[0].split('<name>')[1]
+	song = np.split('</name>')[0].split('>')[-1]
 	
 	# get song tags
 	tags = getTags(artist, song)
