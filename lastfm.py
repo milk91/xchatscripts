@@ -1,114 +1,108 @@
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python3
 
 __module_name__ = "last.fm" 
-__module_version__ = "1.1.0"
+__module_version__ = "1.2.0"
 __module_description__ = "/np for last.fm" 
-import xchat
-import urllib2
+
+from xchat import hook_command, command, EAT_ALL
+#from stdout import hook_command, command, EAT_ALL
 import sys
 import time
+import urllib.request
+from urllib.error import HTTPError
+from urllib.parse import quote
+import socket
+import json
 
 username = 'KillaB-zilla'
-api = 'c9059e92f56e9c41df9e3cb5e2b2278a'
+
+url_base = 'http://ws.audioscrobbler.com/2.0/'
+api_key = 'c9059e92f56e9c41df9e3cb5e2b2278a'
+
+# we must limit the frequency of api calls to one per second
+delay = 1000
+last_req = 0
+
+def fetch(method, args):
+	global last_req
+	url = "%s?method=%s&%s&api_key=%s&format=json" % (url_base, method, '&'.join(["%s=%s" % (k_v[0], quote(str(k_v[1]).encode('utf-8'))) for k_v in iter(args.items())]), api_key)
+
+	while time.time() < last_req + 1:
+		time.sleep(0.1)
+
+	for retries in range(2, -1, -1):
+		try:
+			opener = urllib.request.build_opener()
+			opener.addheaders = [('User-agent', 'Mozilla/5.0')]
+			response = opener.open(url)
+			url_data = response.read()
+			url_data = url_data.decode('utf-8')
+
+			break
+		except HTTPError as e:
+			url_data = e.read()
+		except socket.error as e:
+			errno, errstr = sys.exc_info()[:2]
+			if not retries:
+				return False
+		except Exception as e:	 # <urlopen error timed out>
+			if not retries:
+				return False
+
+	last_req = time.time()
+
+	return json.JSONDecoder().decode(url_data)
+
+def getTags(artist, track):
+# return up to three tags for the track
+	track_tags = fetch('track.getTopTags', {'artist': artist, 'track': track})['toptags']['tag']
+	if type(track_tags) == dict:
+		track_tags = [track_tags]
+
+	artist_tags = fetch('artist.getTopTags', {'artist': artist})['toptags']['tag']
+	if type(artist_tags) == dict:
+		artist_tags = [artist_tags]
+
+	tags = track_tags + artist_tags
+	tags = sorted(tags, key=lambda tag: -int(tag['count']))[:6]
 	
-def RateLimited(maxPerSecond):
-    """Limit speed of network communications."""
-    minInterval = 1.0 / float(maxPerSecond)
-    def decorate(func):
-        lastTimeCalled = [0.0]
-        def rateLimitedFunction(*args,**kargs):
-            elapsed = time.clock() - lastTimeCalled[0]
-            leftToWait = minInterval - elapsed
-            if leftToWait>0:
-                time.sleep(leftToWait)
-            ret = func(*args,**kargs)
-            lastTimeCalled[0] = time.clock()
-            return ret
-        return rateLimitedFunction
-    return decorate
+	# remove dupes
+	seen = set()
+	seen_add = seen.add
+	tags = [tag for tag in tags if tag['name'] not in seen and not seen_add(tag['name'])]
 
-@RateLimited(1)
-def lastfmApi(url):
-# get a page of json from lastfm 'url'
-	myjson = urllib2.urlopen(url)
-	return myjson.read().replace('&amp;','&')
+	tags = ', '.join(map(lambda tag: tag['name'], tags[:3]))
+	if tags != '':
+		tags = '({})'.format(tags)
 
-def readTag(tags, json, num):
-# add 'num'th tag from 'json' to 'tags'
-	if (tags == ""):
-		return json.split('</name>')[num].split('<name>')[1]
-	else:
-		return tags + ", " + json.split('</name>')[num].split('<name>')[1]
-
-def getTags(artist, song):
-# return up to three tags for the song
-	tags = ""
-	fartist = urllib2.quote(artist)
-	fsong = urllib2.quote(song)
-	song_json = lastfmApi('http://ws.audioscrobbler.com/2.0/?method=track.gettoptags&artist={}&track={}&api_key={}'.format(fartist, fsong, api))
-	song_numtags = len(song_json.split('</name>')) - 1
-	if song_numtags >= 3:
-	# song has 3 or more tags, artist tags not needed
-		for i in range(3):
-			tags = readTag(tags, song_json, i)
-	else:
-		# get artist tags
-		artist_json = lastfmApi('http://ws.audioscrobbler.com/2.0/?method=artist.gettoptags&artist={}&api_key={}'.format(fartist, api))
-		artist_numtags = min(3, len(artist_json.split('</name>')) - 1)
-		for i in range(song_numtags):
-			tags = readTag(tags, song_json, i)
-		for i in range(artist_numtags - song_numtags):
-			tags = readTag(tags, artist_json, i)
-	
-	if tags != "":
-		tags = " (" + tags + ")"
 	return tags
 
-def resolveUser(nick):
-# return lastfm username for irc nick
-# I might use a dictionary for this if I ever add more people
-	if (nick == "oranj"):
-		return "oranj456"
-	else:
-	# couldn't find user, just return nick
-		return nick
-
-def checkChannel(channel):
-# returns true if script can be triggered in channel
-	channels = {'#love', '#lucky'}
-	for allowed in channels:
-		if channel == allowed:
-			return True
-	return False
-
-
-def lastfmNp(user):
+def np(user):
 	# get currently playing song
-	np = lastfmApi('http://ws.audioscrobbler.com/2.0/?method=user.getrecenttracks&user={}&api_key={}'.format(user, api))
+	recent = fetch('user.getRecentTracks', {'user' : username, 'limit': '1', 'extended': '1'})['recenttracks']['track']
 
-	if len(np.split('</name>')) == 1:
-		return "no tracks found"
-	artist = np.split('</artist>')[0].split('>')[-1]
-	song = np.split('</name>')[0].split('>')[-1]
-	
+	if type(recent) == list:
+		recent = recent[0]
+
+	try:
+		artist = recent['artist']['name']
+		track  = recent['name']
+		loved  = '♥' if recent['loved'] == '1' else ''
+	except Exception as e:
+		try:
+			return recent['error']
+		except:
+			return e
+
 	# get song tags
-	tags = getTags(artist, song)
+	tags = getTags(artist, track)
 	
 	# return np text
-	return 'np: {} - {}{}'.format(artist, song, tags)
+	return 'np: {} - {} {} {}'.format(artist, track, tags, loved)
 
 
-def sendNp(word,word_eol,userdata):
-	xchat.command('me {}'.format(lastfmNp(username)))
-	return xchat.EAT_ALL
+def np_hook(word,word_eol,userdata):
+	command('me {}'.format(np(username)))
+	return EAT_ALL
 
-def triggerNp(word, word_eol, userdata):
-	nick = word[0].split('!')[0]
-	nick = nick.lstrip(':')
-	channel = word[2]
-	if word[3] == ":!np" and checkChannel(channel) == True:
-		xchat.command('timer .1 msg {} [{}] {}'.format(channel, nick, lastfmNp(resolveUser(nick))))
-	return xchat.EAT_NONE
-
-xchat.hook_command("np", sendNp, help="/np displays your now playing from last.fm") 
-xchat.hook_server("privmsg", triggerNp) 
+hook_command('np', np_hook, help='/np displays your now playing from last.fm') 
