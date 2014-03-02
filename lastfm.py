@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 __module_name__ = "last.fm" 
-__module_version__ = "1.2.1"
+__module_version__ = "1.2.0"
 __module_description__ = "/np for last.fm" 
 
 from xchat import hook_command, command, EAT_ALL
@@ -14,7 +14,6 @@ from urllib.parse import quote
 import socket
 import json
 
-# Edit this line to your own username.
 username = 'KillaB-zilla'
 
 url_base = 'http://ws.audioscrobbler.com/2.0/'
@@ -56,19 +55,13 @@ def fetch(method, args):
 
 def getTags(artist, track):
 # return up to three tags for the track
-	try:
-		track_tags = fetch('track.getTopTags', {'artist': artist, 'track': track})['toptags']['tag']
-		if type(track_tags) == dict:
-			track_tags = [track_tags]
-	except Exception:
-		track_tags = []
+	track_tags = fetch('track.getTopTags', {'artist': artist, 'track': track})['toptags']['tag']
+	if type(track_tags) == dict:
+		track_tags = [track_tags]
 
-	try:
-		artist_tags = fetch('artist.getTopTags', {'artist': artist})['toptags']['tag']
-		if type(artist_tags) == dict:
-			artist_tags = [artist_tags]
-	except Exception:
-		artist_tags = []
+	artist_tags = fetch('artist.getTopTags', {'artist': artist})['toptags']['tag']
+	if type(artist_tags) == dict:
+		artist_tags = [artist_tags]
 
 	tags = track_tags + artist_tags
 	tags = sorted(tags, key=lambda tag: -int(tag['count']))[:6]
